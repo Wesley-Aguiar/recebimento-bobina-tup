@@ -1,0 +1,6 @@
+{
+  "name": "Recebimento Portuário",
+  "description": "Sistema de conferência e recebimento de bobinas (Coils) com integração Firebase, busca preditiva e cálculo de saldos por Navio > Viagem > BL.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

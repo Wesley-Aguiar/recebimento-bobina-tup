@@ -1,0 +1,41 @@
+{
+  "entities": {
+    "EstoquePrevisto": {
+      "title": "EstoquePrevisto",
+      "description": "Estoque de bobinas previsto para descarga no porto",
+      "type": "object",
+      "properties": {
+        "coilNumber": { "type": "string", "description": "Código identificador único da bobina" },
+        "BL": { "type": "string", "description": "Bill of Lading associado" },
+        "navio": { "type": "string", "description": "Nome do navio transportador" },
+        "viagem": { "type": "string", "description": "Número da viagem do navio" }
+      },
+      "required": ["coilNumber", "BL", "navio", "viagem"]
+    },
+    "EstoqueRecebido": {
+      "title": "EstoqueRecebido",
+      "description": "Estoque de bobinas descarregado e efetivamente recebido no porto",
+      "type": "object",
+      "properties": {
+        "coilNumber": { "type": "string", "description": "Código identificador único da bobina" },
+        "BL": { "type": "string", "description": "Bill of Lading associado" },
+        "navio": { "type": "string", "description": "Nome do navio" },
+        "viagem": { "type": "string", "description": "Número da viagem" },
+        "dataRecebimento": { "type": "string", "format": "date-time", "description": "Data e hora ISO do recebimento físico" },
+        "usuarioRecebimento": { "type": "string", "description": "E-mail do operador logístico que realizou o recebimento" },
+        "observacoes": { "type": "string", "description": "Observações ou avarias registradas durante a descarga" }
+      },
+      "required": ["coilNumber", "BL", "navio", "viagem", "dataRecebimento", "usuarioRecebimento"]
+    }
+  },
+  "firestore": {
+    "estoque_previsto": {
+      "schema": "EstoquePrevisto",
+      "description": "Coleção com os dados previstos das bobinas que devem chegar no porto"
+    },
+    "estoque_recebido": {
+      "schema": "EstoqueRecebido",
+      "description": "Coleção com os dados das bobinas efetivamente conferidas e recebidas no pátio"
+    }
+  }
+}

@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Global helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    // Enforce size limits and basic type checking
+    function isValidEstoquePrevisto(data) {
+      return data.coilNumber is string && data.coilNumber.size() <= 128
+          && data.BL is string && data.BL.size() <= 128
+          && data.navio is string && data.navio.size() <= 128
+          && data.viagem is string && data.viagem.size() <= 128;
+    }
+    
+    function isValidEstoqueRecebido(data) {
+      return data.coilNumber is string && data.coilNumber.size() <= 128
+          && data.BL is string && data.BL.size() <= 128
+          && data.navio is string && data.navio.size() <= 128
+          && data.viagem is string && data.viagem.size() <= 128
+          && data.dataRecebimento is string && data.dataRecebimento.size() <= 128
+          && data.usuarioRecebimento is string && data.usuarioRecebimento.size() <= 128
+          && (!('observacoes' in data) || (data.observacoes is string && data.observacoes.size() <= 5000));
+    }
+
+    match /estoque_previsto/{coilNumber} {
+      // Allow authenticated reads
+      allow read: if isSignedIn();
+      
+      // Allow write only if signed in and valid shape
+      allow create: if isSignedIn() && isValidId(coilNumber) 
+                    && isValidEstoquePrevisto(request.resource.data)
+                    && request.resource.data.coilNumber == coilNumber;
+                    
+      allow update: if isSignedIn() && isValidId(coilNumber)
+                    && isValidEstoquePrevisto(request.resource.data)
+                    && request.resource.data.coilNumber == coilNumber;
+                    
+      allow delete: if isSignedIn();
+    }
+    
+    match /estoque_recebido/{coilNumber} {
+      // Allow authenticated reads
+      allow read: if isSignedIn();
+      
+      // Allow write only if signed in and valid shape
+      allow create: if isSignedIn() && isValidId(coilNumber)
+                    && isValidEstoqueRecebido(request.resource.data)
+                    && request.resource.data.coilNumber == coilNumber;
+                    
+      allow update: if isSignedIn() && isValidId(coilNumber)
+                    && isValidEstoqueRecebido(request.resource.data)
+                    && request.resource.data.coilNumber == coilNumber;
+                    
+      allow delete: if isSignedIn();
+    }
+  }
+}
