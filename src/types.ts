@@ -3,6 +3,7 @@ export interface EstoquePrevisto {
   BL: string;
   navio: string;
   viagem: string;
+  grossWeight?: string | number;
 }
 
 export interface EstoqueRecebido {
@@ -13,4 +14,15 @@ export interface EstoqueRecebido {
   dataRecebimento: string; // ISO date string or timestamp
   usuarioRecebimento: string; // Email of the user who registered it
   observacoes?: string;
+  grossWeight?: string | number;
+}
+
+export type UserRole = "admin" | "comum";
+
+export interface UsuarioPerfil {
+  email: string;
+  role: UserRole;
+  nome?: string;
+  dataCadastro?: string;
+  ultimoAcesso?: string;
 }

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { 
   collection, 
   doc, 
@@ -23,7 +23,13 @@ import {
   FileSpreadsheet,
   X,
   RefreshCw,
-  Search
+  Search,
+  Ship,
+  ChevronRight,
+  ChevronDown,
+  FileText,
+  FolderTree,
+  Package
 } from "lucide-react";
 
 interface TabelaGerenciadorProps {
@@ -44,6 +50,13 @@ export default function TabelaGerenciador({
   // Tabs for the data manager
   const [subTab, setSubTab] = useState<"previsto" | "recebido">("previsto");
   const [searchTerm, setSearchTerm] = useState("");
+  const [viewMode, setViewMode] = useState<"navios" | "plano">("navios");
+  const [selectedNavioModalName, setSelectedNavioModalName] = useState<string | null>(null);
+  const [confirmDeleteCoilId, setConfirmDeleteCoilId] = useState<string | null>(null);
+
+  // Search & Accordion State for Modal Popup
+  const [modalSearchTerm, setModalSearchTerm] = useState("");
+  const [modalOpenBLs, setModalOpenBLs] = useState<{ [key: string]: boolean }>({});
   
   // Single insert form state
   const [coilNumber, setCoilNumber] = useState("");
@@ -83,6 +96,75 @@ export default function TabelaGerenciador({
     (item.usuarioRecebimento && item.usuarioRecebimento.toUpperCase().includes(searchTerm.toUpperCase())) ||
     (item.observacoes && item.observacoes.toUpperCase().includes(searchTerm.toUpperCase()))
   );
+
+  const groupedByNavio = useMemo(() => {
+    const items = subTab === "previsto" ? filteredPrevisto : filteredRecebido;
+    const groups: { [navioName: string]: { navio: string; viagens: Set<string>; bls: Set<string>; items: any[] } } = {};
+    
+    items.forEach(item => {
+      const navioName = item.navio || "Sem Navio";
+      if (!groups[navioName]) {
+        groups[navioName] = { navio: navioName, viagens: new Set(), bls: new Set(), items: [] };
+      }
+      if (item.viagem) groups[navioName].viagens.add(item.viagem);
+      if (item.BL) groups[navioName].bls.add(item.BL);
+      groups[navioName].items.push(item);
+    });
+
+    return Object.values(groups).map(g => ({
+      navio: g.navio,
+      viagens: Array.from(g.viagens),
+      bls: Array.from(g.bls),
+      items: g.items
+    }));
+  }, [subTab, filteredPrevisto, filteredRecebido]);
+
+  const currentNavioModalData = useMemo(() => {
+    if (!selectedNavioModalName) return null;
+    return groupedByNavio.find(g => g.navio === selectedNavioModalName) || null;
+  }, [selectedNavioModalName, groupedByNavio]);
+
+  // Filter items inside modal by Coil Number, BL, Viagem or Observacoes
+  const filteredModalItems = useMemo(() => {
+    if (!currentNavioModalData) return [];
+    if (!modalSearchTerm.trim()) return currentNavioModalData.items;
+
+    const term = modalSearchTerm.toUpperCase().trim();
+    return currentNavioModalData.items.filter(item => 
+      item.coilNumber.toUpperCase().includes(term) ||
+      (item.BL && item.BL.toUpperCase().includes(term)) ||
+      (item.viagem && item.viagem.toUpperCase().includes(term)) ||
+      (item.observacoes && item.observacoes.toUpperCase().includes(term))
+    );
+  }, [currentNavioModalData, modalSearchTerm]);
+
+  // Group filtered modal items hierarchically by BL
+  const modalHierarchy = useMemo(() => {
+    const blMap: { [blName: string]: { blName: string; viagens: Set<string>; coils: any[] } } = {};
+    
+    filteredModalItems.forEach(item => {
+      const blName = item.BL || "SEM BL";
+      if (!blMap[blName]) {
+        blMap[blName] = { blName, viagens: new Set(), coils: [] };
+      }
+      if (item.viagem) blMap[blName].viagens.add(item.viagem);
+      blMap[blName].coils.push(item);
+    });
+
+    return Object.values(blMap).sort((a, b) => a.blName.localeCompare(b.blName));
+  }, [filteredModalItems]);
+
+  const toggleModalBL = (blName: string) => {
+    setModalOpenBLs(prev => ({ ...prev, [blName]: !prev[blName] }));
+  };
+
+  const handleToggleAllModalBLs = (expand: boolean) => {
+    const nextState: { [key: string]: boolean } = {};
+    modalHierarchy.forEach(bl => {
+      nextState[bl.blName] = expand;
+    });
+    setModalOpenBLs(nextState);
+  };
 
   const triggerFeedback = (type: "success" | "error" | "info", message: string) => {
     setFeedback({ type, message });
@@ -186,9 +268,12 @@ export default function TabelaGerenciador({
   };
 
   // Delete a specific row
-  const handleDeleteRow = async (id: string) => {
-    if (!confirm(`Deseja realmente remover o registro da bobina ${id}?`)) return;
+  const handleDeleteRow = (id: string) => {
+    setConfirmDeleteCoilId(id);
+  };
 
+  const executeDeleteRow = async (id: string) => {
+    setConfirmDeleteCoilId(null);
     setLoading(true);
     try {
       if (subTab === "previsto") {
@@ -495,6 +580,7 @@ export default function TabelaGerenciador({
               setPasteText("");
               setParsedRows([]);
               setIsImporting(false);
+              setSelectedNavioModalName(null);
             }}
             className={`px-3 py-1.5 rounded text-xs font-bold transition-all uppercase flex items-center gap-1.5 cursor-pointer ${
               subTab === "previsto"
@@ -514,6 +600,7 @@ export default function TabelaGerenciador({
               setPasteText("");
               setParsedRows([]);
               setIsImporting(false);
+              setSelectedNavioModalName(null);
             }}
             className={`px-3 py-1.5 rounded text-xs font-bold transition-all uppercase flex items-center gap-1.5 cursor-pointer ${
               subTab === "recebido"
@@ -820,22 +907,114 @@ export default function TabelaGerenciador({
               <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder={`Pesquisar na tabela de ${subTab === "previsto" ? "planejamento" : "recebimento"}...`}
+                placeholder={`Pesquisar por Bobina, BL, Navio ou Viagem...`}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full text-xs rounded border border-slate-300 py-1.5 pl-9 pr-3 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-blue-500"
               />
             </div>
-            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
-              {subTab === "previsto" 
-                ? `${filteredPrevisto.length} de ${estoquePrevisto.length} registros filtrados` 
-                : `${filteredRecebido.length} de ${estoqueRecebido.length} registros filtrados`}
-            </span>
+            
+            <div className="flex items-center justify-between sm:justify-end gap-3">
+              <div className="flex bg-slate-200 p-0.5 rounded text-[10px] font-bold uppercase">
+                <button
+                  onClick={() => setViewMode("navios")}
+                  className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1 ${
+                    viewMode === "navios" ? "bg-white text-blue-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Ship className="h-3 w-3" />
+                  Por Navio ({groupedByNavio.length})
+                </button>
+                <button
+                  onClick={() => setViewMode("plano")}
+                  className={`px-2.5 py-1 rounded transition-colors cursor-pointer flex items-center gap-1 ${
+                    viewMode === "plano" ? "bg-white text-blue-700 shadow-xs" : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Layers className="h-3 w-3" />
+                  Lista Plana
+                </button>
+              </div>
+
+              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider hidden lg:inline">
+                {subTab === "previsto" 
+                  ? `${filteredPrevisto.length} de ${estoquePrevisto.length} bobinas` 
+                  : `${filteredRecebido.length} de ${estoqueRecebido.length} bobinas`}
+              </span>
+            </div>
           </div>
 
-          {/* Table proper */}
+          {/* Table proper / Ship view */}
           <div className="flex-1 overflow-auto max-h-[500px]">
-            {subTab === "previsto" ? (
+            {viewMode === "navios" ? (
+              groupedByNavio.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center h-full">
+                  {subTab === "previsto" ? (
+                    <>
+                      <Database className="h-10 w-10 text-slate-300 mb-2" />
+                      <p className="text-xs font-bold text-slate-500 uppercase">Tabela de Planejamento Vazia</p>
+                      <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
+                        Não há registros nesta tabela. Use o formulário à esquerda ou cole uma planilha do Excel para popular.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Table className="h-10 w-10 text-slate-300 mb-2" />
+                      <p className="text-xs font-bold text-slate-500 uppercase">Tabela de Recebimento Vazia</p>
+                      <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
+                        Nenhuma bobina foi conferida fisicamente ou cadastrada na base de descarga física ainda.
+                      </p>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {groupedByNavio.map((group) => (
+                    <div
+                      key={group.navio}
+                      onClick={() => setSelectedNavioModalName(group.navio)}
+                      className="bg-white border border-slate-200 hover:border-blue-500 rounded-lg p-4 shadow-xs hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                              <Ship className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <h4 className="font-extrabold text-sm text-slate-800 group-hover:text-blue-600 transition-colors">
+                                {group.navio}
+                              </h4>
+                              <p className="text-[11px] text-slate-400 font-mono">
+                                Viagem: {group.viagens.slice(0, 2).join(", ")}{group.viagens.length > 2 ? ` (+${group.viagens.length - 2})` : ""}
+                              </p>
+                            </div>
+                          </div>
+                          <span className="bg-blue-50 text-blue-700 font-bold text-xs font-mono px-2.5 py-1 rounded-full border border-blue-200 shrink-0">
+                            {group.items.length} {group.items.length === 1 ? "Coil" : "Coils"}
+                          </span>
+                        </div>
+
+                        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-bold">
+                              {group.bls.length} BL(s)
+                            </span>
+                            <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-700 font-bold">
+                              {group.viagens.length} Viagem(ns)
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 text-blue-600 font-extrabold text-[11px] uppercase tracking-wider group-hover:translate-x-0.5 transition-transform">
+                            <span>Abrir Coils</span>
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : subTab === "previsto" ? (
               filteredPrevisto.length === 0 ? (
                 <div className="p-12 text-center text-slate-400 flex flex-col items-center justify-center h-full">
                   <Database className="h-10 w-10 text-slate-300 mb-2" />
@@ -929,6 +1108,272 @@ export default function TabelaGerenciador({
         </div>
 
       </div>
+
+      {/* Pop-up Modal with Coil Numbers list for the selected Navio */}
+      {currentNavioModalData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-blue-600 rounded-lg text-white shadow-md">
+                  <Ship className="h-6 w-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-white tracking-tight">
+                      Navio: {currentNavioModalData.navio}
+                    </h3>
+                    <span className="text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded font-mono font-bold uppercase">
+                      {subTab === "previsto" ? "Planejamento" : "Recebimento Físico"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Viagem(ns): <span className="text-slate-200 font-mono">{currentNavioModalData.viagens.join(", ")}</span> • BL(s): <span className="text-slate-200 font-mono">{currentNavioModalData.bls.join(", ")}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedNavioModalName(null);
+                  setModalSearchTerm("");
+                }}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Search Toolbar */}
+            <div className="p-4 bg-slate-100 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {/* Search Bar */}
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Pesquisar por BL (ex: BL-SAD4930) ou Coil Number (ex: COIL-Z100)..."
+                  value={modalSearchTerm}
+                  onChange={(e) => setModalSearchTerm(e.target.value)}
+                  className="w-full text-xs rounded-lg border border-slate-300 py-2 pl-9 pr-8 text-slate-800 placeholder-slate-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 shadow-2xs font-medium"
+                />
+                {modalSearchTerm && (
+                  <button
+                    onClick={() => setModalSearchTerm("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Stats & Expand/Collapse Controls */}
+              <div className="flex items-center justify-between sm:justify-end gap-2.5">
+                <span className="text-xs text-slate-600 font-bold bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs">
+                  {filteredModalItems.length} {filteredModalItems.length === 1 ? "bobina" : "bobinas"} em {modalHierarchy.length} BL(s)
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleToggleAllModalBLs(true)}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-[11px] rounded-lg border border-slate-200 transition-colors cursor-pointer uppercase"
+                    title="Expandir todas as pastas de BL"
+                  >
+                    Expandir
+                  </button>
+                  <button
+                    onClick={() => handleToggleAllModalBLs(false)}
+                    className="px-2.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 font-bold text-[11px] rounded-lg border border-slate-200 transition-colors cursor-pointer uppercase"
+                    title="Recolher todas as pastas de BL"
+                  >
+                    Recolher
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body / Hierarchical View */}
+            <div className="p-4 sm:p-5 overflow-y-auto flex-1 bg-slate-50/80 space-y-4">
+              {modalHierarchy.length === 0 ? (
+                <div className="p-10 bg-white rounded-xl border border-slate-200 text-center text-slate-400 space-y-2">
+                  <FolderTree className="mx-auto h-8 w-8 text-slate-300" />
+                  <p className="text-xs font-bold text-slate-600 uppercase">
+                    Nenhum resultado encontrado
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Não encontramos bobinas ou BLs correspondentes à pesquisa "<strong className="text-slate-600 font-mono">{modalSearchTerm}</strong>" neste navio.
+                  </p>
+                </div>
+              ) : (
+                modalHierarchy.map((blGroup) => {
+                  const isExpanded = modalSearchTerm.trim() !== "" || modalOpenBLs[blGroup.blName] !== false;
+
+                  return (
+                    <div
+                      key={blGroup.blName}
+                      className="bg-white rounded-xl border border-slate-200/90 shadow-xs overflow-hidden transition-all"
+                    >
+                      {/* Hierarchical Level 1 Header: BL Node */}
+                      <div
+                        onClick={() => toggleModalBL(blGroup.blName)}
+                        className="px-4 py-3 bg-gradient-to-r from-slate-100 to-slate-50 hover:bg-slate-100/90 border-b border-slate-200 flex items-center justify-between cursor-pointer transition-colors select-none"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-1.5 bg-blue-600 text-white rounded-md shadow-2xs">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">BL:</span>
+                              <h4 className="text-sm font-black font-mono text-slate-800 uppercase tracking-tight">
+                                {blGroup.blName}
+                              </h4>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+                              <span>Viagem: <strong className="font-mono text-slate-700">{Array.from(blGroup.viagens).join(", ") || "-"}</strong></span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200 font-mono">
+                            {blGroup.coils.length} {blGroup.coils.length === 1 ? "Bobina" : "Bobinas"}
+                          </span>
+                          <div className="text-slate-400 hover:text-slate-600 p-1">
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4 text-blue-600" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Hierarchical Level 2: Coil Numbers list nested inside BL */}
+                      {isExpanded && (
+                        <div className="p-3 bg-slate-50/50">
+                          <div className="border-l-2 border-blue-400/80 ml-2 pl-3 py-1 space-y-2">
+                            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-2xs">
+                              <table className="w-full text-left border-collapse text-xs">
+                                <thead className="bg-slate-100/80 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b">
+                                  <tr>
+                                    <th className="py-2 px-3">Coil Number (Chave)</th>
+                                    <th className="py-2 px-3">Viagem</th>
+                                    {subTab === "recebido" && (
+                                      <>
+                                        <th className="py-2 px-3">Data / Operador</th>
+                                        <th className="py-2 px-3">Observações / Avarias</th>
+                                      </>
+                                    )}
+                                    <th className="py-2 px-3 text-right">Ação</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-mono text-slate-700">
+                                  {blGroup.coils.map((row) => (
+                                    <tr key={row.coilNumber} className="hover:bg-blue-50/30 transition-colors">
+                                      <td className="py-2 px-3 font-bold text-blue-600 text-xs">
+                                        <span className="bg-blue-50 px-2 py-0.5 rounded border border-blue-100 font-mono">
+                                          {row.coilNumber}
+                                        </span>
+                                      </td>
+                                      <td className="py-2 px-3 text-slate-600">
+                                        {row.viagem || "-"}
+                                      </td>
+                                      {subTab === "recebido" && (
+                                        <>
+                                          <td className="py-2 px-3 text-slate-500 font-sans text-[11px]">
+                                            <div>{new Date(row.dataRecebimento).toLocaleDateString()}</div>
+                                            <div className="text-[9px] text-slate-400 font-bold uppercase">{row.usuarioRecebimento?.split("@")[0] || "-"}</div>
+                                          </td>
+                                          <td className="py-2 px-3 text-slate-500 font-sans italic max-w-[200px] truncate" title={row.observacoes}>
+                                            {row.observacoes || "-"}
+                                          </td>
+                                        </>
+                                      )}
+                                      <td className="py-2 px-3 text-right">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteRow(row.coilNumber);
+                                          }}
+                                          className="text-red-500 hover:text-red-700 font-bold hover:underline text-[10px] uppercase cursor-pointer px-2 py-1"
+                                        >
+                                          [Excluir]
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-white px-5 py-3 border-t border-slate-200 flex items-center justify-between text-xs">
+              <span className="text-slate-500 hidden sm:inline">
+                Filtre por <strong>BL</strong> ou <strong>Coil Number</strong> no campo superior. Clique em <strong>[Excluir]</strong> para remover a bobina.
+              </span>
+              <button
+                onClick={() => {
+                  setSelectedNavioModalName(null);
+                  setModalSearchTerm("");
+                }}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg transition-colors cursor-pointer uppercase text-xs shadow-sm ml-auto"
+              >
+                Fechar Pop-up
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal (Anti-Acidental Click) */}
+      {confirmDeleteCoilId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
+            <div className="bg-slate-900 text-white p-4 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-2.5 font-bold text-sm">
+                <AlertTriangle className="h-5 w-5 text-amber-400" />
+                <span>Confirmar Exclusão de Bobina</span>
+              </div>
+              <button
+                onClick={() => setConfirmDeleteCoilId(null)}
+                className="text-slate-400 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-slate-700 font-medium leading-relaxed">
+                Deseja realmente excluir permanentemente o registro da bobina{" "}
+                <strong className="text-red-600 font-mono text-base">{confirmDeleteCoilId}</strong> do banco de dados?
+              </p>
+              <p className="text-xs text-slate-500 bg-amber-50 p-2.5 rounded border border-amber-200/80">
+                <strong>Atenção:</strong> Esta medida de segurança protege contra cliques por engano. A remoção não poderá ser desfeita e atualizará o estoque imediatamente.
+              </p>
+            </div>
+            <div className="bg-slate-50 px-5 py-3 border-t border-slate-200 flex items-center justify-end gap-2.5">
+              <button
+                onClick={() => setConfirmDeleteCoilId(null)}
+                className="px-4 py-2 rounded text-xs font-bold text-slate-600 hover:bg-slate-200/80 transition-colors cursor-pointer uppercase"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => executeDeleteRow(confirmDeleteCoilId)}
+                className="px-4 py-2 rounded text-xs font-bold text-white bg-red-600 hover:bg-red-700 transition-colors cursor-pointer uppercase shadow-xs"
+              >
+                Sim, Excluir Bobina
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

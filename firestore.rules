@@ -13,7 +13,7 @@ service cloud.firestore {
     }
     
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-.@+]+$');
     }
     
     // Enforce size limits and basic type checking
@@ -32,6 +32,14 @@ service cloud.firestore {
           && data.dataRecebimento is string && data.dataRecebimento.size() <= 128
           && data.usuarioRecebimento is string && data.usuarioRecebimento.size() <= 128
           && (!('observacoes' in data) || (data.observacoes is string && data.observacoes.size() <= 5000));
+    }
+
+    function isValidUsuario(data) {
+      return data.email is string && data.email.size() <= 128
+          && data.role is string && (data.role == 'admin' || data.role == 'comum')
+          && (!('nome' in data) || (data.nome is string && data.nome.size() <= 128))
+          && (!('dataCadastro' in data) || (data.dataCadastro is string && data.dataCadastro.size() <= 128))
+          && (!('ultimoAcesso' in data) || (data.ultimoAcesso is string && data.ultimoAcesso.size() <= 128));
     }
 
     match /estoque_previsto/{coilNumber} {
@@ -55,7 +63,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       
       // Allow write only if signed in and valid shape
-      allow create: if isSignedIn() && isValidId(coilNumber)
+      allow create: if isSignedIn() && isValidId(coilNumber) 
                     && isValidEstoqueRecebido(request.resource.data)
                     && request.resource.data.coilNumber == coilNumber;
                     
@@ -63,6 +71,13 @@ service cloud.firestore {
                     && isValidEstoqueRecebido(request.resource.data)
                     && request.resource.data.coilNumber == coilNumber;
                     
+      allow delete: if isSignedIn();
+    }
+
+    match /usuarios/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(userId)
+                            && isValidUsuario(request.resource.data);
       allow delete: if isSignedIn();
     }
   }

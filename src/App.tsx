@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import { EstoquePrevisto, EstoqueRecebido } from "./types";
+import { EstoquePrevisto, EstoqueRecebido, UserRole, UsuarioPerfil } from "./types";
 import Login from "./components/Login";
 import Lancamento from "./components/Lancamento";
 import Dashboard from "./components/Dashboard";
 import TabelaGerenciador from "./components/TabelaGerenciador";
+import GerenciadorUsuarios from "./components/GerenciadorUsuarios";
 import { 
   LogOut, 
   Ship, 
@@ -15,19 +16,72 @@ import {
   RefreshCw, 
   User,
   ExternalLink,
-  Database
+  Database,
+  Shield,
+  Users
 } from "lucide-react";
 
 export default function App() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<UserRole>("comum");
   const [authChecked, setAuthChecked] = useState(false);
   const isOffline = false; // System simulation disabled, always online
-  const [activeTab, setActiveTab] = useState<"lancamento" | "dashboard" | "banco">("lancamento");
+  const [activeTab, setActiveTab] = useState<"lancamento" | "dashboard" | "banco" | "usuarios">("lancamento");
   
   // Data State
   const [estoquePrevisto, setEstoquePrevisto] = useState<EstoquePrevisto[]>([]);
   const [estoqueRecebido, setEstoqueRecebido] = useState<EstoqueRecebido[]>([]);
   const [loadingData, setLoadingData] = useState(false);
+
+  const checkAndSaveUserRole = async (email: string) => {
+    try {
+      const userRef = doc(db, "usuarios", email);
+      const userSnap = await getDoc(userRef);
+      
+      let currentRole: UserRole = "comum";
+      
+      if (userSnap.exists()) {
+        const data = userSnap.data() as UsuarioPerfil;
+        currentRole = data.role || "comum";
+        
+        await setDoc(userRef, {
+          ...data,
+          ultimoAcesso: new Date().toISOString()
+        }, { merge: true });
+      } else {
+        const isAdminEmail = 
+          email.toLowerCase() === "wesleyaguiaraguiar88@gmail.com" ||
+          email.toLowerCase().includes("admin") ||
+          email.toLowerCase().includes("gestor");
+          
+        currentRole = isAdminEmail ? "admin" : "comum";
+        
+        const newPerfil: UsuarioPerfil = {
+          email: email,
+          role: currentRole,
+          dataCadastro: new Date().toISOString(),
+          ultimoAcesso: new Date().toISOString()
+        };
+        
+        await setDoc(userRef, newPerfil);
+      }
+      
+      setUserRole(currentRole);
+      if (currentRole === "comum") {
+        setActiveTab("lancamento");
+      }
+    } catch (err) {
+      console.error("Erro ao carregar permissões do usuário:", err);
+      const isAdminEmail = 
+        email.toLowerCase() === "wesleyaguiaraguiar88@gmail.com" ||
+        email.toLowerCase().includes("admin") ||
+        email.toLowerCase().includes("gestor");
+      setUserRole(isAdminEmail ? "admin" : "comum");
+      if (!isAdminEmail) {
+        setActiveTab("lancamento");
+      }
+    }
+  };
 
   // Helper to fetch online data
   const fetchData = async () => {
@@ -60,15 +114,16 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
-        if (user) {
+        if (user && user.email) {
           setUserEmail(user.email);
           localStorage.setItem("isOfflineMode", "false");
           localStorage.setItem("loggedInUserEmail", user.email || "");
           
-          // Fetch stock lists
+          await checkAndSaveUserRole(user.email);
           await fetchData();
         } else {
           setUserEmail(null);
+          setUserRole("comum");
           setEstoquePrevisto([]);
           setEstoqueRecebido([]);
         }
@@ -86,6 +141,7 @@ export default function App() {
     setUserEmail(email);
     localStorage.setItem("isOfflineMode", "false");
     localStorage.setItem("loggedInUserEmail", email);
+    checkAndSaveUserRole(email);
     fetchData();
   };
 
@@ -96,6 +152,8 @@ export default function App() {
       localStorage.removeItem("loggedInUserEmail");
       await signOut(auth);
       setUserEmail(null);
+      setUserRole("comum");
+      setActiveTab("lancamento");
     } catch (error) {
       console.error("Logout error: ", error);
     }
@@ -171,38 +229,65 @@ export default function App() {
         </div>
 
         {/* Main Tabs Selection - Fully responsive, scrollable or split equally on mobile */}
-        <nav className="grid grid-cols-3 md:flex gap-1 md:gap-6 text-xs md:text-sm font-medium w-full md:w-auto bg-slate-800/40 md:bg-transparent p-1 md:p-0 rounded-lg">
-          <button
-            onClick={() => setActiveTab("lancamento")}
-            className={`py-2 px-3 md:pb-1 text-center transition-all rounded-md md:rounded-none cursor-pointer ${
-              activeTab === "lancamento" 
-                ? "bg-slate-800 text-blue-400 md:bg-transparent md:text-blue-400 md:border-b-2 md:border-blue-400 font-bold" 
-                : "text-slate-300 hover:text-white"
-            }`}
-          >
-            Lançamento
-          </button>
-          <button
-            onClick={() => setActiveTab("dashboard")}
-            className={`py-2 px-3 md:pb-1 text-center transition-all rounded-md md:rounded-none cursor-pointer ${
-              activeTab === "dashboard" 
-                ? "bg-slate-800 text-blue-400 md:bg-transparent md:text-blue-400 md:border-b-2 md:border-blue-400 font-bold" 
-                : "text-slate-300 hover:text-white"
-            }`}
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => setActiveTab("banco")}
-            className={`py-2 px-3 md:pb-1 text-center transition-all rounded-md md:rounded-none cursor-pointer ${
-              activeTab === "banco" 
-                ? "bg-slate-800 text-blue-400 md:bg-transparent md:text-blue-400 md:border-b-2 md:border-blue-400 font-bold" 
-                : "text-slate-300 hover:text-white"
-            }`}
-          >
-            Tabelas
-          </button>
-        </nav>
+        {userRole === "admin" ? (
+          <nav className="grid grid-cols-4 gap-1 md:gap-4 text-xs md:text-sm font-medium w-full md:w-auto bg-slate-800/40 md:bg-transparent p-1 md:p-0 rounded-lg">
+            <button
+              onClick={() => setActiveTab("lancamento")}
+              className={`py-2 px-2 md:pb-1 text-center transition-all rounded-md md:rounded-none cursor-pointer ${
+                activeTab === "lancamento" 
+                  ? "bg-slate-800 text-blue-400 md:bg-transparent md:text-blue-400 md:border-b-2 md:border-blue-400 font-bold" 
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              Lançamento
+            </button>
+            <button
+              onClick={() => setActiveTab("dashboard")}
+              className={`py-2 px-2 md:pb-1 text-center transition-all rounded-md md:rounded-none cursor-pointer ${
+                activeTab === "dashboard" 
+                  ? "bg-slate-800 text-blue-400 md:bg-transparent md:text-blue-400 md:border-b-2 md:border-blue-400 font-bold" 
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              Dashboard
+            </button>
+            <button
+              onClick={() => setActiveTab("banco")}
+              className={`py-2 px-2 md:pb-1 text-center transition-all rounded-md md:rounded-none cursor-pointer ${
+                activeTab === "banco" 
+                  ? "bg-slate-800 text-blue-400 md:bg-transparent md:text-blue-400 md:border-b-2 md:border-blue-400 font-bold" 
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              Tabelas
+            </button>
+            <button
+              onClick={() => setActiveTab("usuarios")}
+              className={`py-2 px-2 md:pb-1 text-center transition-all rounded-md md:rounded-none cursor-pointer flex items-center justify-center gap-1 ${
+                activeTab === "usuarios" 
+                  ? "bg-slate-800 text-blue-400 md:bg-transparent md:text-blue-400 md:border-b-2 md:border-blue-400 font-bold" 
+                  : "text-slate-300 hover:text-white"
+              }`}
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span>Usuários</span>
+            </button>
+          </nav>
+        ) : (
+          <nav className="flex items-center gap-3 text-xs md:text-sm font-medium w-full md:w-auto bg-slate-800/40 md:bg-transparent p-1.5 md:p-0 rounded-lg justify-between md:justify-start">
+            <button
+              onClick={() => setActiveTab("lancamento")}
+              className="py-1.5 px-4 bg-slate-800 text-blue-400 md:bg-transparent md:text-blue-400 md:border-b-2 md:border-blue-400 font-bold rounded-md md:rounded-none cursor-pointer"
+            >
+              Lançamento
+            </button>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold bg-slate-800/80 text-slate-300 rounded border border-slate-700/60">
+              <User className="h-3 w-3 text-amber-400" />
+              <span className="hidden sm:inline">Acesso restrito à Operação de Lançamento</span>
+              <span className="sm:hidden">Operador (Lançamento)</span>
+            </span>
+          </nav>
+        )}
 
         {/* User Profile & Logout - Hidden on mobile, shown on desktop */}
         <div className="hidden md:flex items-center gap-4">
@@ -216,7 +301,18 @@ export default function App() {
           </button>
 
           <div className="text-right">
-            <p className="text-xs font-bold">{userEmail?.split("@")[0] || "Operador"}</p>
+            <div className="flex items-center justify-end gap-1.5">
+              <p className="text-xs font-bold">{userEmail?.split("@")[0] || "Operador"}</p>
+              {userRole === "admin" ? (
+                <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider flex items-center gap-1">
+                  <Shield className="w-2.5 h-2.5 text-blue-400" /> Admin
+                </span>
+              ) : (
+                <span className="bg-slate-700 text-slate-300 border border-slate-600 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider flex items-center gap-1">
+                  <User className="w-2.5 h-2.5 text-slate-400" /> Comum
+                </span>
+              )}
+            </div>
             <p className="text-[10px] text-slate-400">{userEmail}</p>
           </div>
 
@@ -241,7 +337,7 @@ export default function App() {
           </div>
         ) : (
           <div className="transition-all duration-300">
-            {activeTab === "lancamento" ? (
+            {activeTab === "lancamento" || userRole === "comum" ? (
               <Lancamento 
                 userEmail={userEmail} 
                 onRefreshData={fetchData}
@@ -254,7 +350,7 @@ export default function App() {
                 estoquePrevisto={estoquePrevisto}
                 estoqueRecebido={estoqueRecebido}
               />
-            ) : (
+            ) : activeTab === "banco" ? (
               <TabelaGerenciador
                 userEmail={userEmail}
                 estoquePrevisto={estoquePrevisto}
@@ -262,6 +358,8 @@ export default function App() {
                 onRefreshData={fetchData}
                 isOffline={isOffline}
               />
+            ) : (
+              <GerenciadorUsuarios currentEmail={userEmail} />
             )}
           </div>
         )}
@@ -283,6 +381,7 @@ export default function App() {
         </div>
         <div className="flex gap-4">
           <span>SESSÃO: <span className="font-mono text-slate-600">#920E-STUDIO</span></span>
+          <span>NÍVEL: <span className="font-mono text-slate-600 font-bold">{userRole === "admin" ? "ADMIN (TOTAL)" : "COMUM (LANÇAMENTO)"}</span></span>
           <span>STATUS: <span className="font-mono text-slate-600">{isOffline ? "MOCK / OFFLINE" : "ONLINE"}</span></span>
         </div>
       </footer>
